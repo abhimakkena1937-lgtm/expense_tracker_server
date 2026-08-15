@@ -9,9 +9,10 @@ from pathlib import Path
 
 mcp = FastMCP("Expense Tracker")
 
-# Database location
-DB_PATH = Path(r"C:\fast_mcp_demo_server\expenses.db")
-CATEGORIES_PATH=Path(r"C:\fast_mcp_demo_server\categories.json")
+BASE_DIR = Path(__file__).resolve().parent
+
+DB_PATH = BASE_DIR / "expenses.db"
+CATEGORIES_PATH = BASE_DIR / "categories.json"
 
 
 # --------------------------------------------------
