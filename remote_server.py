@@ -1,13 +1,20 @@
 from fastmcp import FastMCP
-import sqlite3
+import aiosqlite
 from datetime import datetime
 from pathlib import Path
+import asyncio
+
 
 # --------------------------------------------------
 # MCP Server
 # --------------------------------------------------
 
 mcp = FastMCP("Expense Tracker")
+
+
+# --------------------------------------------------
+# File locations
+# --------------------------------------------------
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -16,20 +23,25 @@ CATEGORIES_PATH = Path("/tmp/categories.json")
 
 
 # --------------------------------------------------
-# Database Setup
+# Database Connection
 # --------------------------------------------------
 
-def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+async def get_connection():
+    conn = await aiosqlite.connect(DB_PATH)
+    conn.row_factory = aiosqlite.Row
     return conn
 
 
-def init_db():
-    conn = get_connection()
+# --------------------------------------------------
+# Database Setup
+# --------------------------------------------------
+
+async def init_db():
+
+    conn = await get_connection()
 
     # Expenses table
-    conn.execute("""
+    await conn.execute("""
         CREATE TABLE IF NOT EXISTS expenses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             amount REAL NOT NULL,
@@ -41,7 +53,7 @@ def init_db():
     """)
 
     # Credits / income table
-    conn.execute("""
+    await conn.execute("""
         CREATE TABLE IF NOT EXISTS credits (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             amount REAL NOT NULL,
@@ -52,12 +64,8 @@ def init_db():
         )
     """)
 
-    conn.commit()
-    conn.close()
-
-
-# Create database/tables when server starts
-init_db()
+    await conn.commit()
+    await conn.close()
 
 
 # --------------------------------------------------
@@ -65,7 +73,7 @@ init_db()
 # --------------------------------------------------
 
 @mcp.tool
-def add_expense(
+async def add_expense(
     amount: float,
     category: str,
     description: str = "",
@@ -93,9 +101,9 @@ def add_expense(
     except ValueError:
         return "Error: expense_date must be in YYYY-MM-DD format."
 
-    conn = get_connection()
+    conn = await get_connection()
 
-    cursor = conn.execute(
+    cursor = await conn.execute(
         """
         INSERT INTO expenses
         (amount, category, description, expense_date, created_at)
@@ -112,8 +120,8 @@ def add_expense(
 
     expense_id = cursor.lastrowid
 
-    conn.commit()
-    conn.close()
+    await conn.commit()
+    await conn.close()
 
     return (
         f"Expense added successfully.\n"
@@ -130,7 +138,7 @@ def add_expense(
 # --------------------------------------------------
 
 @mcp.tool
-def delete_expense(expense_id: int) -> str:
+async def delete_expense(expense_id: int) -> str:
     """
     Delete an expense using its ID.
 
@@ -138,24 +146,26 @@ def delete_expense(expense_id: int) -> str:
         expense_id: ID of the expense to delete.
     """
 
-    conn = get_connection()
+    conn = await get_connection()
 
     # Check whether expense exists
-    expense = conn.execute(
+    cursor = await conn.execute(
         """
         SELECT *
         FROM expenses
         WHERE id = ?
         """,
         (expense_id,)
-    ).fetchone()
+    )
+
+    expense = await cursor.fetchone()
 
     if not expense:
-        conn.close()
+        await conn.close()
         return f"Error: No expense found with ID {expense_id}."
 
     # Delete expense
-    conn.execute(
+    await conn.execute(
         """
         DELETE FROM expenses
         WHERE id = ?
@@ -163,8 +173,8 @@ def delete_expense(expense_id: int) -> str:
         (expense_id,)
     )
 
-    conn.commit()
-    conn.close()
+    await conn.commit()
+    await conn.close()
 
     return (
         f"Expense deleted successfully.\n"
@@ -181,7 +191,7 @@ def delete_expense(expense_id: int) -> str:
 # --------------------------------------------------
 
 @mcp.tool
-def add_credit(
+async def add_credit(
     amount: float,
     source: str,
     description: str = "",
@@ -210,9 +220,9 @@ def add_credit(
     except ValueError:
         return "Error: credit_date must be in YYYY-MM-DD format."
 
-    conn = get_connection()
+    conn = await get_connection()
 
-    cursor = conn.execute(
+    cursor = await conn.execute(
         """
         INSERT INTO credits
         (amount, source, description, credit_date, created_at)
@@ -229,8 +239,8 @@ def add_credit(
 
     credit_id = cursor.lastrowid
 
-    conn.commit()
-    conn.close()
+    await conn.commit()
+    await conn.close()
 
     return (
         f"Credit added successfully.\n"
@@ -247,7 +257,7 @@ def add_credit(
 # --------------------------------------------------
 
 @mcp.tool
-def summary(
+async def summary(
     category: str = "",
     start_date: str = "",
     end_date: str = ""
@@ -264,7 +274,7 @@ def summary(
         Total expenses, credits, balance and expense breakdown.
     """
 
-    conn = get_connection()
+    conn = await get_connection()
 
     # --------------------------------------------------
     # Expense filters
@@ -294,7 +304,7 @@ def summary(
     # Expense Total
     # --------------------------------------------------
 
-    expense_result = conn.execute(
+    cursor = await conn.execute(
         f"""
         SELECT
             COUNT(*) AS count,
@@ -303,7 +313,9 @@ def summary(
         {expense_where}
         """,
         expense_params
-    ).fetchone()
+    )
+
+    expense_result = await cursor.fetchone()
 
     expense_total = expense_result["total"]
     expense_count = expense_result["count"]
@@ -312,7 +324,7 @@ def summary(
     # Expense Category Breakdown
     # --------------------------------------------------
 
-    category_results = conn.execute(
+    cursor = await conn.execute(
         f"""
         SELECT
             category,
@@ -324,7 +336,9 @@ def summary(
         ORDER BY total DESC
         """,
         expense_params
-    ).fetchall()
+    )
+
+    category_results = await cursor.fetchall()
 
     # --------------------------------------------------
     # Credit filters
@@ -350,7 +364,7 @@ def summary(
     # Credit Total
     # --------------------------------------------------
 
-    credit_result = conn.execute(
+    cursor = await conn.execute(
         f"""
         SELECT
             COUNT(*) AS count,
@@ -359,12 +373,14 @@ def summary(
         {credit_where}
         """,
         credit_params
-    ).fetchone()
+    )
+
+    credit_result = await cursor.fetchone()
 
     credit_total = credit_result["total"]
     credit_count = credit_result["count"]
 
-    conn.close()
+    await conn.close()
 
     # --------------------------------------------------
     # Calculate Balance
@@ -423,18 +439,29 @@ def summary(
             )
 
     return "\n".join(result)
+
+
+# --------------------------------------------------
+# Resource: Categories
+# --------------------------------------------------
+
 @mcp.resource(
     "expense://categories",
     name="Expense Categories",
     description="Available expense categories and subcategories",
     mime_type="application/json"
 )
-def categories():
-    print("RESOURCE READ: expense://categories", flush=True)
+async def categories():
 
-    with open(CATEGORIES_PATH, "r", encoding="utf-8") as f:
-        return f.read()
+    print(
+        "RESOURCE READ: expense://categories",
+        flush=True
+    )
 
+    return await asyncio.to_thread(
+        CATEGORIES_PATH.read_text,
+        encoding="utf-8"
+    )
 
 
 # --------------------------------------------------
@@ -442,4 +469,11 @@ def categories():
 # --------------------------------------------------
 
 if __name__ == "__main__":
-    mcp.run(transport="http",host="0.0.0.0",port=8000)
+
+    asyncio.run(init_db())
+
+    mcp.run(
+        transport="http",
+        host="0.0.0.0",
+        port=8000
+    )
