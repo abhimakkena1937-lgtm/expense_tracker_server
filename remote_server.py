@@ -2,14 +2,8 @@ from fastmcp import FastMCP
 import aiosqlite
 from datetime import datetime
 from pathlib import Path
+from contextlib import asynccontextmanager
 import asyncio
-
-
-# --------------------------------------------------
-# MCP Server
-# --------------------------------------------------
-
-mcp = FastMCP("Expense Tracker")
 
 
 # --------------------------------------------------
@@ -66,6 +60,31 @@ async def init_db():
 
     await conn.commit()
     await conn.close()
+
+
+# --------------------------------------------------
+# FastMCP Startup / Shutdown
+# --------------------------------------------------
+
+@asynccontextmanager
+async def app_lifespan(server):
+    print("Initializing expense database...", flush=True)
+
+    await init_db()
+
+    print("Expense database initialized.", flush=True)
+
+    yield
+
+
+# --------------------------------------------------
+# MCP Server
+# --------------------------------------------------
+
+mcp = FastMCP(
+    "Expense Tracker",
+    lifespan=app_lifespan
+)
 
 
 # --------------------------------------------------
@@ -469,8 +488,6 @@ async def categories():
 # --------------------------------------------------
 
 if __name__ == "__main__":
-
-    asyncio.run(init_db())
 
     mcp.run(
         transport="http",
